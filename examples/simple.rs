@@ -42,6 +42,11 @@ fn foo() -> HTMLScene {
             TextTemplate BackgroundColor="Rgba(red: 0, green: 0, blue: 1, alpha: 1)" { "cheese" }
             TextTemplate BackgroundColor="Rgba(red: 0, green: 0, blue: 1, alpha: 1)" { "cheese" }
             TextTemplate BackgroundColor="Rgba(red: 0, green: 0, blue: 1, alpha: 1)" { "cheese" }
+
+            NodeTemplate Style="{width: Px(60)}"
+                ContentSize UiImage="{texture: (path_to_handle, (\"Image\", \"cool.png\"))}" UiImageSize { }
+            NodeTemplate Style="{width: Px(70)}"
+                ContentSize UiImage="{texture: (path_to_handle, (\"Image\", \"cool.png\"))}" UiImageSize { }
         }
     })
 }
