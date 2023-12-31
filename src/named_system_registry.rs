@@ -1,8 +1,6 @@
-use std::{collections::HashMap, marker::PhantomData, any::TypeId};
+use std::{collections::HashMap, any::TypeId};
 
-use bevy::{ecs::{system::{SystemId, Resource, IntoSystem, BoxedSystem, System}, world::{Mut, EntityWorldMut, World}, entity::Entity, component::Component}, app::{Plugin, App}, reflect::{Reflect, TypeInfo}, core::Name};
-
-use crate::HTMLScene;
+use bevy::{ecs::{system::{Resource, IntoSystem, System}, world::World, entity::Entity, component::Component}, app::{Plugin, App}, reflect::Reflect};
 
 pub trait NamedSystemRegistryExt {
     fn register_named_system<M, S, In, Out>(&mut self, name: impl AsRef<str>, system: S) -> &mut Self
@@ -56,7 +54,6 @@ pub struct NamedSystemRegistry {
 }
 impl NamedSystemRegistry {
     pub fn call_reflect(&self, world: &mut World, name: &str, in_ref: Box<dyn Reflect>) -> Option<Box<dyn Reflect>> {
-        println!("{} {:?}", name, self.systems);
         let entity = self.systems.get(name)?.0;
 
         // Take function out
@@ -73,6 +70,10 @@ impl NamedSystemRegistry {
         let in_ref: Box<dyn Reflect> = Box::new(in_val);
         let res_ref = self.call_reflect(world, name, in_ref)?;
         res_ref.downcast().ok().map(|x| *x)
+    }
+    pub fn get_type_ids(&self, name: &str) -> Option<(TypeId, TypeId)> {
+        let x = self.systems.get(name)?;
+        Some((x.1, x.2))
     }
 }
 

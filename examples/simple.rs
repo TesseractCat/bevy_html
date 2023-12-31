@@ -8,14 +8,14 @@ fn startup(mut html_assets: ResMut<Assets<HTMLScene>>, mut commands: Commands) {
 
     let xs = HTMLScene::from(html! {
         NodeTemplate
-        Style="{flex_direction: Row, row_gap: Px(10), margin: (left: Px(20), right: Px(20), top: Px(20), bottom: Px(20))}"
-        Style:row_gap="Px(20)"
+        Style="{flex_direction: Row, row_gap: Px(10), margin: {left: Px(20), right: Px(20), top: Px(20), bottom: Px(20)}}"
         BackgroundColor="Rgba(red: 0, green: 0, blue: 0, alpha: 0)"
         //Handle:XScene="test.xml"
         {
             NodeTemplate Style="{flex_direction: Column, row_gap: Px(10)}" BackgroundColor="Rgba(red: 0, green: 0, blue: 0, alpha: 0)" {
-                NodeTemplate /*UiImage="{texture: (\"handle_from_path\", \"cool.png\")}" UiImageSize*/ { }
-                TextTemplate BackgroundColor="Rgba(red: 1, green: 0, blue: 0, alpha: 1)"
+                NodeTemplate Style="{width: Px(50)}"
+                    ContentSize UiImage="{texture: (path_to_handle, (\"Image\", \"cool.png\"))}" UiImageSize { }
+                TextTemplate BackgroundColor="(hex_to_color, \"FF0000\")"
                     Button Interaction="None" XSwap XFunction="\"foo\"" { "meowing" }
                 TextTemplate BackgroundColor="Rgba(red: 0, green: 1, blue: 0, alpha: 1)" { "barking" }
                 TextTemplate BackgroundColor="Rgba(red: 0, green: 0, blue: 1, alpha: 1)" { "shouting" }
@@ -27,9 +27,9 @@ fn startup(mut html_assets: ResMut<Assets<HTMLScene>>, mut commands: Commands) {
             }
         }
     });
-    let xs2 = HTMLScene::try_from("
-    <TextTemplate Style='{ flex_direction: Column }' BackgroundColor='Rgba(red: 1, green: 0, blue: 0, alpha: 1)'>Eating</TextTemplate>
-    ").unwrap();
+    let xs2 = HTMLScene::try_from(r##"
+    <TextTemplate Style='{ flex_direction: Column }' BackgroundColor='(hex_to_color, "#FF0000")'>Eating</TextTemplate>
+    "##).unwrap();
 
     commands.spawn_empty()
         .insert(html_assets.add(xs));

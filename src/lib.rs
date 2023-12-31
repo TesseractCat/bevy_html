@@ -3,7 +3,7 @@ use std::{thread::spawn, collections::HashMap};
 use bevy::{prelude::*, render::render_resource::DynamicUniformBuffer, reflect::{TypeInfo, TypeRegistry, TypeRegistration, ReflectMut, DynamicEnum, DynamicVariant, DynamicTuple, DynamicStruct, DynamicTupleStruct}, scene::DynamicEntity, app::ScheduleRunnerPlugin, pbr::PBR_TYPES_SHADER_HANDLE, ecs::{reflect::ReflectCommandExt, system::{EntityCommands, SystemId}}, ui::FocusPolicy, a11y::Focus};
 use html_parser::Dom;
 use maud::{html, Markup};
-use named_system_registry::NamedSystemRegistryPlugin;
+use named_system_registry::{NamedSystemRegistryPlugin, NamedSystemRegistry};
 use ron::{Options, extensions::Extensions, Value, Map, value::RawValue};
 use serde::{Serialize, Deserialize};
 use thiserror::Error;
@@ -80,19 +80,18 @@ pub enum HTMLSceneSpawnError {
     PatchNonStruct(String),
 }
 
-fn construct_instance(type_registry: &TypeRegistry, key: &str, key_type: &TypeRegistration, value: Option<&str>) -> Result<Box<dyn Reflect>, HTMLSceneSpawnError> {
+fn construct_instance(world: &mut World, type_registry: &TypeRegistry, named_system_registry: &NamedSystemRegistry, key_type: &TypeRegistration, value: Option<&str>) -> Result<Box<dyn Reflect>, HTMLSceneSpawnError> {
     let ron_options = Options::default().with_default_extension(Extensions::UNWRAP_NEWTYPES);
 
-    // Construct an instance of this attribute's component
-    Ok(if let Some(value) = value {
-        let decoded_html_string = html_escape::decode_html_entities(&value);
+    let instance: Option<Box<dyn Reflect>> = if value.is_some() {
+        let decoded_html_string = html_escape::decode_html_entities(value.unwrap());
 
         // Recreate our deserializer
         let mut ron_de = ron::Deserializer::from_str_with_options(
             &decoded_html_string, &ron_options
         ).expect("Couldn't construct RON deserializer");
 
-        let instance: Option<Box<dyn Reflect>> = match key_type.type_info() {
+        match key_type.type_info() {
             TypeInfo::Struct(info) => {
                 // Deserialize to a HashMap of RawValue
                 let values: HashMap<&RawValue, &RawValue> = HashMap::deserialize(&mut ron_de).unwrap();
@@ -102,19 +101,13 @@ fn construct_instance(type_registry: &TypeRegistry, key: &str, key_type: &TypeRe
                 for (k, v) in values.into_iter() {
                     let field_name = k.get_ron().trim();
                     if let Some(field_info) = info.field(field_name) {
-                        // Deserialize this field using the ReflectDeserialize impl
-                        let deserializer = type_registry.get_type_data::<ReflectDeserialize>(field_info.type_id())
-                            .ok_or(HTMLSceneSpawnError::NoDeserialize(field_info.type_path().to_string()))?;
-                        let mut ron_de = ron::Deserializer::from_str_with_options(v.get_ron(), &ron_options)
-                            .map_err(|_| HTMLSceneSpawnError::DeserializationFailed(key.to_string()))?;
-    
                         ref_struct.insert_boxed(
                             field_name,
-                            deserializer.deserialize(&mut ron_de).expect("Failed to deserialize field")
+                            construct_instance(world, type_registry, named_system_registry, type_registry.get(field_info.type_id()).unwrap(), Some(v.get_ron()))?
                         );
                     }
                 }
-
+    
                 Some(Box::new(ref_struct))
             },
             TypeInfo::TupleStruct(info) => {
@@ -125,55 +118,69 @@ fn construct_instance(type_registry: &TypeRegistry, key: &str, key_type: &TypeRe
                     });
                 let mut ref_tuple = DynamicTupleStruct::default();
                 ref_tuple.set_represented_type(Some(key_type.type_info()));
-
+    
                 for (i, v) in values.into_iter().enumerate() {
                     if let Some(field_info) = info.field_at(i) {
-                        // Deserialize this field using the ReflectDeserialize impl
-                        let deserializer = type_registry.get_type_data::<ReflectDeserialize>(field_info.type_id())
-                            .ok_or(HTMLSceneSpawnError::NoDeserialize(field_info.type_path().to_string()))?;
-                        let mut ron_de = ron::Deserializer::from_str_with_options(v.get_ron(), &ron_options)
-                            .map_err(|_| HTMLSceneSpawnError::DeserializationFailed(key.to_string()))?;
-    
                         ref_tuple.insert_boxed(
-                            deserializer.deserialize(&mut ron_de).expect("Failed to deserialize field")
+                            construct_instance(world, type_registry, named_system_registry, type_registry.get(field_info.type_id()).unwrap(), Some(v.get_ron()))?
                         );
                     }
                 }
-
+    
                 Some(Box::new(ref_tuple))
             },
             _ => {
-                // Try deserializing
-                let deserializer = type_registry.get_type_data::<ReflectDeserialize>(key_type.type_id())
-                    .ok_or(HTMLSceneSpawnError::NoDeserialize(key_type.type_info().type_path().to_string()))?;
                 let mut ron_de = ron::Deserializer::from_str_with_options(&decoded_html_string, &ron_options)
-                    .map_err(|_| HTMLSceneSpawnError::DeserializationFailed(key.to_string()))?;
+                    .map_err(|_| HTMLSceneSpawnError::DeserializationFailed(key_type.type_info().type_path().to_string()))?;
 
-                Some(deserializer.deserialize(&mut ron_de).expect("Failed to deserialize field"))
+                let deserialized = type_registry.get_type_data::<ReflectDeserialize>(key_type.type_id())
+                    .and_then(|deserializer| deserializer.deserialize(&mut ron_de).ok());
+
+                if let Some(deserialized) = deserialized{
+                    // If there was a deserializer and we could deserialize, go with that
+                    Some(deserialized)
+                } else {
+                    // Otherwise, see if there's a constructor function referenced here
+                    let (constructor_fun, val) = <(&RawValue, &RawValue)>::deserialize(&mut ron_de).expect("Failed to find constructor function");
+                    let constructor_fun = constructor_fun.get_ron().trim().to_string();
+
+                    if let Some((in_type, _)) = named_system_registry.get_type_ids(&constructor_fun) {
+                        let mut ron_de = ron::Deserializer::from_str_with_options(val.get_ron(), &ron_options)
+                            .map_err(|_| HTMLSceneSpawnError::DeserializationFailed(key_type.type_info().type_path().to_string()))?;
+                        let deserializer = type_registry.get_type_data::<ReflectDeserialize>(in_type).unwrap();
+                        let in_val = deserializer.deserialize(&mut ron_de).expect("Failed to deserialize constructor function input type");
+
+                        named_system_registry.call_reflect(world, &constructor_fun, in_val)
+                    } else {
+                        panic!("Attempted to use invalid/unregistered constructor function")
+                    }
+                }
             }
-        };
-
-        let instance: Box<dyn Reflect> = match (instance, type_registry.get_type_data::<ReflectDefault>(key_type.type_id())) {
-            // Get the default instance... or
-            (Some(instance), Some(default_impl)) => { let mut d = default_impl.default(); d.apply(&*instance); d },
-            (None, Some(default_impl)) => default_impl.default(),
-            (Some(instance), None) => instance,
-            (None, None) => panic!(),
-        };
-
-        instance
+        }
     } else {
-        // Nothing to assign, just construct default
-        type_registry.get_type_data::<ReflectDefault>(key_type.type_id())
-            .ok_or(HTMLSceneSpawnError::NoDefault(key.to_string()))?
-            .default()
-    })
+        None
+    };
+
+    let instance: Box<dyn Reflect> = match (instance, type_registry.get_type_data::<ReflectDefault>(key_type.type_id())) {
+        // Get the default instance... or
+        (Some(instance), Some(default_impl)) => { let mut d = default_impl.default(); d.apply(&*instance); d },
+        (None, Some(default_impl)) => default_impl.default(),
+        (Some(instance), None) => instance,
+        (None, None) => panic!(),
+    };
+
+    Ok(instance)
 }
 
-fn spawn_scene(scene: &HTMLScene, replace: Entity, type_registry: &TypeRegistry, commands: &mut Commands) -> Result<(), HTMLSceneSpawnError> {
+fn spawn_scene(
+    scene: &HTMLScene, replace: Entity,
+    type_registry: &TypeRegistry, named_system_registry: &NamedSystemRegistry,
+    world: &mut World
+) -> Result<(), HTMLSceneSpawnError> {
     fn helper(
         html_el: &html_parser::Element,
-        type_registry: &TypeRegistry, commands: &mut EntityCommands
+        type_registry: &TypeRegistry, named_system_registry: &NamedSystemRegistry,
+        commands: &mut EntityWorldMut
     ) -> Result<(), HTMLSceneSpawnError> {
         let mut text_style = TextStyle::default();
 
@@ -193,29 +200,13 @@ fn spawn_scene(scene: &HTMLScene, replace: Entity, type_registry: &TypeRegistry,
                 _ => ()
             }
 
-            if let Some((attribute, field)) = attribute.as_str().split_once(":") {
-                println!("MEOWING {}: {}", attribute, field);
-                continue;
-                let (_, handle_type_name) = attribute.split_once(":").unwrap();
-                let handle_type_reg = type_registry
-                    .get_with_short_type_path(&format!("Handle<{}>", handle_type_name))
-                    .ok_or(HTMLSceneSpawnError::InvalidAttributeAssociatedType(attribute.to_string(), handle_type_name.to_string()))?;
-                let mut tuple = DynamicTuple::default();
-                tuple.insert(todo!());
-                let mut handle_refl = DynamicEnum::new(
-                    "Strong",
-                    DynamicVariant::Tuple(tuple)
-                );
-                handle_refl.set_represented_type(Some(handle_type_reg.type_info()));
-                commands.insert_reflect(Box::new(handle_refl));
-                continue;
-            }
-
             let attribute_reg: &TypeRegistration = type_registry
                 .get_with_short_type_path(&attribute)
                 .expect(&format!("Attribute name [{}]: Referred to undefined component", &attribute));
 
-            let instance = construct_instance(type_registry, attribute, attribute_reg, value.map(|x| x.as_str()))?;
+            let instance = commands.world_scope(|world| {
+                construct_instance(world, type_registry, named_system_registry, attribute_reg, value.map(|x| x.as_str()))
+            })?;
 
             let template: Option<&dyn Template> = type_registry.get_type_data::<ReflectTemplate>(attribute_reg.type_id())
                 .and_then(|x| x.get(&*instance));
@@ -224,10 +215,12 @@ fn spawn_scene(scene: &HTMLScene, replace: Entity, type_registry: &TypeRegistry,
             if let Some(template) = template {
                 let template = template.template().0;
                 // Recurse with the template's XML
-                helper(&template.children.first().unwrap().element().unwrap(), type_registry, commands)?;
+                helper(&template.children.first().unwrap().element().unwrap(), type_registry, named_system_registry, commands)?;
             } else {
                 // Otherwise insert our component
-                commands.insert_reflect(instance);
+                let reflect_component = type_registry.get_with_type_path(instance.get_represented_type_info().unwrap().type_path())
+                    .unwrap().data::<ReflectComponent>().unwrap();
+                reflect_component.insert(commands, &*instance);
             }
         }
         if let Some(id) = html_el.id.as_ref() {
@@ -241,45 +234,74 @@ fn spawn_scene(scene: &HTMLScene, replace: Entity, type_registry: &TypeRegistry,
             }
         }
         
-        let mut children = Vec::new();
-        for child in &html_el.children {
-            if let html_parser::Node::Element(child) = child {
-                let mut child_entity = commands.commands().spawn_empty();
-                children.push(child_entity.id());
-                helper(&child, type_registry, &mut child_entity)?;
+        let children = commands.world_scope(|world| {
+            let mut children = Vec::new();
+            for child in &html_el.children {
+                if let html_parser::Node::Element(child) = child {
+                    let mut child_entity = world.spawn_empty();
+                    children.push(child_entity.id());
+                    helper(&child, type_registry, named_system_registry, &mut child_entity)?;
+                }
             }
-        }
+            Ok(children)
+        })?;
         commands.push_children(children.as_slice());
         Ok(())
     }
 
-    let mut child = commands.entity(replace);
-    helper(&scene.0.children.first().expect("HTMLScene has no children").element().expect("HTMLScene first child is not an element"), type_registry, &mut child)
+    let mut child = world.entity_mut(replace);
+    helper(
+        &scene.0.children.first().expect("HTMLScene has no children").element().expect("HTMLScene first child is not an element"),
+        type_registry, named_system_registry,
+    &mut child
+    )
 }
 
 pub(crate) fn spawn_scene_system(
-    type_registry: Res<AppTypeRegistry>,
-    mut commands: Commands,
-    html_scenes: Res<Assets<HTMLScene>>,
-    to_spawn: Query<(Entity, Option<&Parent>, &Handle<HTMLScene>)>,
-    children: Query<&Children>
+    world: &mut World,
 ) {
-    for (entity, parent, handle) in &to_spawn {
-        let scene = html_scenes.get(handle).unwrap();
-        if let Some(parent) = parent {
-            let idx = children.get(parent.get()).unwrap().iter().position(|&x| x == entity).unwrap();
+    world.resource_scope(|world, type_registry: Mut<AppTypeRegistry>| {
+        world.resource_scope(|world, html_scenes: Mut<Assets<HTMLScene>>| {
+            world.resource_scope(|world, named_system_registry: Mut<NamedSystemRegistry>| {
+                let mut to_spawn = world.query::<(Entity, Option<&Parent>, &Handle<HTMLScene>)>();
+                let mut children = world.query::<&Children>();
 
-            commands.entity(entity).despawn_recursive();
-            let entity = commands.spawn_empty().id();
-            spawn_scene(scene, entity, &type_registry.0.read(), &mut commands).expect("Failed to spawn HTMLScene!");
+                for (entity, parent, handle) in to_spawn
+                    .iter(world)
+                    .map(|(a,b,c)| (a, b.map(|p| p.get()), c.clone()))
+                    .collect::<Vec<_>>()
+                {
+                    let scene = html_scenes.get(handle).unwrap();
+                    let entity = if let Some(parent) = parent {
+                        let idx = children.get(world, parent).unwrap().iter().position(|&x| x == entity).unwrap();
+            
+                        world.entity_mut(entity).despawn_recursive();
+                        let entity = world.spawn_empty().id();
+                        world.entity_mut(parent).insert_children(idx, &[entity]);
 
-            commands.entity(parent.get()).insert_children(idx, &[entity]);
-        } else {
-            commands.entity(entity).despawn();
-            let entity = commands.spawn_empty().id();
-            spawn_scene(scene, entity, &type_registry.0.read(), &mut commands).expect("Failed to spawn HTMLScene!");
-        }
-    }
+                        entity
+                    } else {
+                        world.entity_mut(entity).despawn();
+                        world.spawn_empty().id()
+                    };
+
+                    spawn_scene(
+                        scene, entity,
+                        &type_registry.0.read(), &named_system_registry,
+                        world
+                    ).expect("Failed to spawn HTMLScene!");
+                }
+            });
+        });
+    });
+}
+
+fn hex_to_color(hex: In<String>) -> Color {
+    Color::hex(hex.0).unwrap()
+}
+fn path_to_handle(i: In<(String, String)>, asset_server: Res<AssetServer>, type_registry: Res<AppTypeRegistry>) -> Handle<Image> {
+    let (handle_type, path) = i.0;
+    asset_server.load(path)
 }
 
 pub struct HTMLPlugin;
@@ -289,6 +311,9 @@ impl Plugin for HTMLPlugin {
             .add_plugins(NamedSystemRegistryPlugin)
             .add_plugins(XPlugin)
 
+            .register_named_system("hex_to_color", hex_to_color)
+            .register_named_system("path_to_handle", path_to_handle)
+
             .init_asset::<HTMLScene>()
 
             .register_type::<NodeTemplate>()
@@ -297,6 +322,9 @@ impl Plugin for HTMLPlugin {
             .register_type::<TextTemplate>()
             .register_type_data::<TextTemplate, ReflectTemplate>()
             .register_type_data::<TextTemplate, ReflectDefault>()
+
+            .register_type::<(String, String)>()
+            .register_type_data::<(String, String), ReflectDeserialize>()
 
             .add_systems(PreUpdate, spawn_scene_system);
     }
