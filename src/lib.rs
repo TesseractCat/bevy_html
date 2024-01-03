@@ -300,6 +300,12 @@ pub(crate) fn spawn_scene_system(
     });
 }
 
+impl Construct for Entity {
+    type In = u64;
+    fn construct(world: &mut World, data: Self::In) -> Option<Self> {
+        Some(Entity::from_bits(data))
+    }
+}
 impl<T: Asset> Construct for Handle<T> {
     type In = String;
     fn construct(world: &mut World, data: Self::In) -> Option<Self> {
@@ -316,10 +322,21 @@ impl Construct for Color {
         })
     }
 }
+#[derive(Reflect, Deserialize)]
+pub enum ConstructUiRectIn {
+    All(Val),
+    Axes(Val, Val),
+    LRTB(Val, Val, Val, Val)
+}
 impl Construct for UiRect {
-    type In = (Val, Val, Val, Val);
+    type In = ConstructUiRectIn;
+
     fn construct(_world: &mut World, data: Self::In) -> Option<Self> {
-        Some(UiRect::new(data.0, data.1, data.2, data.3))
+        Some(match data {
+            ConstructUiRectIn::All(v) => UiRect::all(v),
+            ConstructUiRectIn::Axes(a, b) => UiRect::axes(a, b),
+            ConstructUiRectIn::LRTB(a, b, c, d) => UiRect::new(a, b, c, d),
+        })
     }
 }
 
@@ -363,6 +380,7 @@ impl Plugin for HTMLPlugin {
             .register_type::<(String, String)>()
             .register_type_data::<(String, String), ReflectDeserialize>()
 
+            .register_type_data::<Entity, ReflectConstruct>()
             .register_type_data::<Handle<Image>, ReflectConstruct>()
             .register_type_data::<Handle<Font>, ReflectConstruct>()
             .register_type_data::<Handle<Gltf>, ReflectConstruct>()

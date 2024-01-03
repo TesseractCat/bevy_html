@@ -13,8 +13,8 @@ fn startup(num: Res<Number>, mut html_assets: ResMut<Assets<HTMLScene>>, mut com
         Node
         Style="flex_direction: Row,
             column_gap: Px(20),
-            margin: (Px(20), Px(20), Px(20), Px(20)),
-            padding: (Px(20), Px(20), Px(20), Px(20))"
+            margin: All(Px(20)),
+            padding: All(Px(20))"
         Outline="color: \"black\", width: Px(2)"
         BackgroundColor="Rgba(red: 1, green: 0, blue: 1, alpha: 1)"
         {
@@ -23,11 +23,11 @@ fn startup(num: Res<Number>, mut html_assets: ResMut<Assets<HTMLScene>>, mut com
             (number(num))
 
             Node Style="flex_direction: Column, row_gap: Px(10)" {
-                Button BackgroundColor="\"red\"" Style="padding: (Px(20),Px(20),Px(20),Px(20))"
+                Button BackgroundColor="\"red\"" Style="padding: All(Px(20))"
                 XTarget="Name(\"number\")" XFunction="\"increment\"" XSwap="Front" {
                     Text TextStyle="size: 40" { "+" }
                 }
-                Button BackgroundColor="\"blue\"" Style="padding: (Px(20),Px(20),Px(20),Px(20))"
+                Button BackgroundColor="\"blue\"" Style="padding: All(Px(20))"
                 XTarget="Name(\"number\")" XFunction="\"decrement\"" {
                     Text TextStyle="size: 40" { "-" }
                 }
@@ -41,7 +41,7 @@ fn startup(num: Res<Number>, mut html_assets: ResMut<Assets<HTMLScene>>, mut com
 
 fn number(num: Res<Number>) -> HTMLScene {
     HTMLScene::try_from(format!(r##"
-        <Node id="number" Style="padding: (Px(20), Px(20), Px(20), Px(20))" BackgroundColor='"white"'>
+        <Node id="number" Style="padding: Axes(Px(40), Px(20))" BackgroundColor='"white"'>
             <Text TextStyle='size: 35, color: "#222222", font: "FreeSerif.ttf"'>{}</Text>
         </Node>
     "##, num.0)).unwrap()
