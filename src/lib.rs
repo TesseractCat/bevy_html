@@ -1,6 +1,6 @@
 use std::{borrow::Cow, fmt::Display};
 
-use bevy::{prelude::*, reflect::{TypeInfo, TypeRegistry, TypeRegistration, FromType}, gltf::Gltf};
+use bevy::{prelude::*, reflect::{TypeInfo, TypeRegistry, TypeRegistration, FromType}, gltf::Gltf, asset::{AssetLoader, AsyncReadExt}};
 use bevy::reflect::erased_serde;
 use html_parser::Dom;
 use maud::{html, Markup, PreEscaped};
@@ -52,6 +52,32 @@ impl TryFrom<String> for HTMLScene {
 
     fn try_from(value: String) -> Result<Self, Self::Error> {
         Ok(HTMLScene(value.clone(), Dom::parse(&value)?))
+    }
+}
+
+#[derive(Default)]
+pub struct HTMLSceneAssetLoader;
+impl AssetLoader for HTMLSceneAssetLoader {
+    type Asset = HTMLScene;
+    type Settings = ();
+    type Error = html_parser::Error;
+
+    fn load<'a>(
+            &'a self,
+            reader: &'a mut bevy::asset::io::Reader,
+            settings: &'a Self::Settings,
+            load_context: &'a mut bevy::asset::LoadContext,
+        ) -> bevy::utils::BoxedFuture<'a, Result<Self::Asset, Self::Error>> {
+        Box::pin(async move {
+            let mut bytes = Vec::new();
+            reader.read_to_end(&mut bytes).await?;
+            let str = std::str::from_utf8(bytes.as_slice()).unwrap();
+            HTMLScene::try_from(str)
+        })
+    }
+
+    fn extensions(&self) -> &[&str] {
+        &["html"]
     }
 }
 
@@ -187,6 +213,13 @@ fn spawn_scene(
                 },
                 _ => ()
             }
+
+            // Allow for generic types
+            let attribute = if let Some((attribute, attribute_type)) = attribute.split_once(":") {
+                format!("{attribute}<{attribute_type}>")
+            } else {
+                attribute.to_string()
+            };
 
             let attribute_reg: &TypeRegistration = type_registry
                 .get_with_short_type_path(&attribute)
@@ -324,6 +357,7 @@ impl Plugin for HTMLPlugin {
             .add_plugins(XPlugin)
 
             .init_asset::<HTMLScene>()
+            .init_asset_loader::<HTMLSceneAssetLoader>()
 
             .register_type::<InterimTextStyle>()
             .register_type::<(String, String)>()
@@ -334,6 +368,7 @@ impl Plugin for HTMLPlugin {
             .register_type_data::<Handle<Gltf>, ReflectConstruct>()
             .register_type_data::<Handle<AudioSource>, ReflectConstruct>()
             .register_type_data::<Handle<Scene>, ReflectConstruct>()
+            .register_type_data::<Handle<HTMLScene>, ReflectConstruct>()
             .register_type_data::<Color, ReflectConstruct>()
             .register_type_data::<UiRect, ReflectConstruct>()
 

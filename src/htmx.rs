@@ -13,18 +13,24 @@ use crate::named_system_registry::NamedSystemRegistry;
 pub enum XSwap {
     #[default]
     Outer,
-    Inner
+    Inner,
+    Front,
+    Back
 }
 #[derive(Component, Serialize, Deserialize, Default, Debug, Clone, Reflect)]
 #[reflect(Component, Deserialize, Default)]
-pub enum XTarget {
+pub enum XTarget { // TODO: Some equivalent to CSS selectors (dynamic queries?)
     #[default]
     This,
-    Name(String)
+    NextSibling,
+    PreviousSibling,
+    Root,
+    Name(String),
+    Entity(Entity)
 }
 #[derive(Component, Serialize, Deserialize, Default, Debug, Clone, Reflect)]
 #[reflect(Component, Deserialize)]
-pub struct XSwapOn(pub String);
+pub struct XOn(pub String);
 #[derive(Component, Serialize, Deserialize, Default, Debug, Clone, Reflect)]
 #[reflect(Component, Deserialize)]
 pub struct XFunction(pub String);
@@ -58,7 +64,8 @@ fn button_swap_system(
 
                 let entity = match target {
                     XTarget::This => entity,
-                    XTarget::Name(name) => name_query.iter(world).find(|(_, n)| n.as_str() == name).unwrap().0
+                    XTarget::Name(name) => name_query.iter(world).find(|(_, n)| n.as_str() == name).unwrap().0,
+                    _ => unimplemented!()
                 };
                 match swap {
                     XSwap::Outer => {
@@ -73,6 +80,20 @@ fn button_swap_system(
                         world.entity_mut(entity)
                             .despawn_descendants()
                             .add_child(child);
+                    },
+                    XSwap::Back => {
+                        let child = world.spawn_empty()
+                            .insert(html_scenes.add(xs))
+                            .id();
+                        world.entity_mut(entity)
+                            .push_children(&[child]);
+                    },
+                    XSwap::Front => {
+                        let child = world.spawn_empty()
+                            .insert(html_scenes.add(xs))
+                            .id();
+                        world.entity_mut(entity)
+                            .insert_children(0, &[child]);
                     }
                 }
             }

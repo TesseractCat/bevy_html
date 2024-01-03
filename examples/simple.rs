@@ -18,14 +18,13 @@ fn startup(num: Res<Number>, mut html_assets: ResMut<Assets<HTMLScene>>, mut com
         Outline="color: \"black\", width: Px(2)"
         BackgroundColor="Rgba(red: 1, green: 0, blue: 1, alpha: 1)"
         {
-            Image Style="width: Px(50), height: Px(50)" BackgroundColor="\"white\""
-                UiImage="texture: \"cool.png\"" Outline="width: Px(5), color: \"purple\"" { }
+            Node Handle:HTMLScene="\"image.html\"" { }
 
             (number(num))
 
             Node Style="flex_direction: Column, row_gap: Px(10)" {
                 Button BackgroundColor="\"red\"" Style="padding: (Px(20),Px(20),Px(20),Px(20))"
-                XTarget="Name(\"number\")" XFunction="\"increment\"" {
+                XTarget="Name(\"number\")" XFunction="\"increment\"" XSwap="Front" {
                     Text TextStyle="size: 40" { "+" }
                 }
                 Button BackgroundColor="\"blue\"" Style="padding: (Px(20),Px(20),Px(20),Px(20))"
