@@ -1,11 +1,10 @@
 // A variant of TypedReflectDeserializer that deserializes to entirely dynamic reflect types which can then be applied, also checks for ReflectConstruct impls
 
-use std::{marker::PhantomData, fmt::{self, Formatter}};
+use std::fmt::{self, Formatter};
 
-use bevy::{reflect::{TypeRegistration, TypeRegistry, Reflect, TypeInfo, DynamicStruct, StructInfo, ReflectDeserialize, DynamicTupleStruct, Enum, TupleStructInfo, DynamicEnum, EnumInfo, VariantInfo, DynamicVariant, DynamicTuple, StructVariantInfo, UnnamedField, TupleVariantInfo, TupleInfo, NamedField, Tuple}, scene::DynamicEntity, ecs::world::World};
+use bevy::{reflect::{TypeRegistration, TypeRegistry, Reflect, TypeInfo, DynamicStruct, StructInfo, ReflectDeserialize, DynamicTupleStruct, TupleStructInfo, DynamicEnum, EnumInfo, VariantInfo, DynamicVariant, DynamicTuple, StructVariantInfo, UnnamedField, TupleVariantInfo, TupleInfo, NamedField}, ecs::world::World};
 use bevy::reflect::erased_serde;
 use serde::{de::{Visitor, SeqAccess, MapAccess, DeserializeSeed, Error, EnumAccess, VariantAccess, IntoDeserializer}, Deserialize, Deserializer};
-use std::collections::HashMap;
 
 use crate::ReflectConstruct;
 
@@ -215,7 +214,7 @@ impl<'a, 'de> DeserializeSeed<'de> for TypedPartialReflectDeserializer<'a> {
                 if self.set_represented_type { dynamic_enum.set_represented_type(Some(self.registration.type_info())); }
                 Ok(Box::new(dynamic_enum))
             },
-            TypeInfo::Value(info) => {
+            TypeInfo::Value(_) => {
                 if let Some(deserialize_reflect) = self.registration.data::<ReflectDeserialize>() {
                     let value = deserialize_reflect.deserialize(deserializer).unwrap();
                     Ok(value)
@@ -421,7 +420,7 @@ impl<'a, 'de> Visitor<'de> for EnumVisitor<'a> {
         formatter.write_str("reflected struct value")
     }
 
-    fn visit_enum<A>(self, mut data: A) -> Result<Self::Value, A::Error>
+    fn visit_enum<A>(self, data: A) -> Result<Self::Value, A::Error>
         where
             A: EnumAccess<'de>, {
         let mut dynamic_enum = DynamicEnum::default();

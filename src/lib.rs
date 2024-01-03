@@ -1,12 +1,12 @@
-use std::{thread::spawn, collections::HashMap, borrow::Cow, fmt::Display};
+use std::{borrow::Cow, fmt::Display};
 
-use bevy::{prelude::*, render::{render_resource::DynamicUniformBuffer, Render}, reflect::{TypeInfo, TypeRegistry, TypeRegistration, ReflectMut, DynamicEnum, DynamicVariant, DynamicTuple, DynamicStruct, DynamicTupleStruct, TypeRegistryArc, FromType, EnumInfo, VariantInfo, serde::{UntypedReflectDeserializer, TypedReflectDeserializer}}, scene::DynamicEntity, app::ScheduleRunnerPlugin, pbr::PBR_TYPES_SHADER_HANDLE, ecs::{reflect::ReflectCommandExt, system::{EntityCommands, SystemId}}, ui::FocusPolicy, a11y::Focus};
+use bevy::{prelude::*, reflect::{TypeInfo, TypeRegistry, TypeRegistration, FromType}, gltf::Gltf};
 use bevy::reflect::erased_serde;
 use html_parser::Dom;
 use maud::{html, Markup, PreEscaped};
 use named_system_registry::NamedSystemRegistryPlugin;
-use ron::{Options, extensions::Extensions, Value, Map, value::RawValue};
-use serde::{Serialize, Deserialize, Deserializer, de::{Visitor, DeserializeSeed}};
+use ron::Options;
+use serde::{Deserialize, de::DeserializeSeed};
 use thiserror::Error;
 
 pub mod htmx;
@@ -70,7 +70,7 @@ pub struct ReflectConstruct {
 impl<T: Construct + Reflect> FromType<T> for ReflectConstruct {
     fn from_type() -> Self {
         ReflectConstruct {
-            func: |world, mut deserializer: &mut dyn erased_serde::Deserializer| {
+            func: |world, deserializer: &mut dyn erased_serde::Deserializer| {
                 let data = T::In::deserialize(deserializer).ok()?;
                 let constructed = T::construct(world, data)?;
                 Some(Box::new(constructed))
@@ -276,7 +276,7 @@ impl<T: Asset> Construct for Handle<T> {
 }
 impl Construct for Color {
     type In = String;
-    fn construct(world: &mut World, data: Self::In) -> Option<Self> {
+    fn construct(_world: &mut World, data: Self::In) -> Option<Self> {
         let c = csscolorparser::parse(&data).ok()?;
         Some(Color::Rgba {
             red: c.r as f32, green: c.g as f32, blue: c.b as f32, alpha: c.a as f32
@@ -285,7 +285,7 @@ impl Construct for Color {
 }
 impl Construct for UiRect {
     type In = (Val, Val, Val, Val);
-    fn construct(world: &mut World, data: Self::In) -> Option<Self> {
+    fn construct(_world: &mut World, data: Self::In) -> Option<Self> {
         Some(UiRect::new(data.0, data.1, data.2, data.3))
     }
 }
@@ -330,8 +330,10 @@ impl Plugin for HTMLPlugin {
             .register_type_data::<(String, String), ReflectDeserialize>()
 
             .register_type_data::<Handle<Image>, ReflectConstruct>()
-            .register_type::<Option<Handle<Font>>>()
             .register_type_data::<Handle<Font>, ReflectConstruct>()
+            .register_type_data::<Handle<Gltf>, ReflectConstruct>()
+            .register_type_data::<Handle<AudioSource>, ReflectConstruct>()
+            .register_type_data::<Handle<Scene>, ReflectConstruct>()
             .register_type_data::<Color, ReflectConstruct>()
             .register_type_data::<UiRect, ReflectConstruct>()
 

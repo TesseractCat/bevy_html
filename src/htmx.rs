@@ -1,13 +1,11 @@
-use bevy::ecs::system::{RunSystemOnce, BoxedSystem, Command};
 use bevy::prelude::*;
-use bevy::ui::UiStack;
 use bevy::{ecs::component::Component, reflect::ReflectDeserialize};
 use bevy::ecs::reflect::ReflectComponent;
 use bevy::reflect::std_traits::ReflectDefault;
 use bevy::reflect::Reflect;
 use serde::{Serialize, Deserialize};
 
-use crate::{HTMLScene, named_system_registry, spawn_scene_system};
+use crate::{HTMLScene, spawn_scene_system};
 use crate::named_system_registry::NamedSystemRegistry;
 
 #[derive(Component, Serialize, Deserialize, Default, Debug, Clone, Reflect)]
@@ -34,7 +32,7 @@ pub struct XFunction(pub String);
 fn button_swap_system(
     world: &mut World,
 ) {
-    world.resource_scope(|world, mut named_system_registry: Mut<NamedSystemRegistry>| {
+    world.resource_scope(|world, named_system_registry: Mut<NamedSystemRegistry>| {
         world.resource_scope(|world, mut html_scenes: Mut<Assets<HTMLScene>>| {
             let mut interaction_query = world.query_filtered::<
                 (
@@ -48,7 +46,6 @@ fn button_swap_system(
                 (Changed<Interaction>, With<Button>),
             >();
             let mut name_query = world.query::<(Entity, &Name)>();
-            let mut queue = bevy::ecs::system::CommandQueue::default();
 
             let mut to_apply: Vec<(Entity, Entity, XSwap, XTarget, String)> = Vec::new();
             for (entity, interaction, parent, func, swap, target) in interaction_query.iter(world) {
@@ -56,7 +53,7 @@ fn button_swap_system(
                     to_apply.push((entity, parent.get(), swap.cloned().unwrap_or_default(), target.cloned().unwrap_or_default(), func.0.clone()));
                 }
             }
-            for (entity, parent, swap, target, func) in to_apply {
+            for (entity, _parent, swap, target, func) in to_apply {
                 let xs = named_system_registry.call::<(), HTMLScene>(world, func.as_str(), ()).unwrap();
 
                 let entity = match target {
@@ -76,8 +73,7 @@ fn button_swap_system(
                         world.entity_mut(entity)
                             .despawn_descendants()
                             .add_child(child);
-                    },
-                    _ => unimplemented!()
+                    }
                 }
             }
         });
