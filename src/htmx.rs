@@ -26,79 +26,109 @@ pub enum XTarget { // TODO: Some equivalent to CSS selectors (dynamic queries?)
     PreviousSibling,
     Root,
     Name(String),
+    ChildName(String),
     Entity(Entity)
 }
 #[derive(Component, Serialize, Deserialize, Default, Debug, Clone, Reflect)]
 #[reflect(Component, Deserialize)]
-pub struct XOn(pub String);
+pub enum XOn {
+    #[default]
+    Create,
+    Update,
+    Fixed(f32),
+    Click,
+    Event(String)
+}
 #[derive(Component, Serialize, Deserialize, Default, Debug, Clone, Reflect)]
 #[reflect(Component, Deserialize)]
 pub struct XFunction(pub String);
 
-fn button_swap_system(
-    world: &mut World,
-) {
-    world.resource_scope(|world, named_system_registry: Mut<NamedSystemRegistry>| {
-        world.resource_scope(|world, mut html_scenes: Mut<Assets<HTMLScene>>| {
-            let mut interaction_query = world.query_filtered::<
-                (
-                    Entity,
-                    &Interaction,
-                    &Parent,
-                    &XFunction,
-                    Option<&XSwap>,
-                    Option<&XTarget>
-                ),
-                (Changed<Interaction>, With<Button>),
-            >();
-            let mut name_query = world.query::<(Entity, &Name)>();
+type ToRun = (Entity, XFunction, XOn, XSwap, XTarget);
 
-            let mut to_apply: Vec<(Entity, Entity, XSwap, XTarget, String)> = Vec::new();
-            for (entity, interaction, parent, func, swap, target) in interaction_query.iter(world) {
-                if matches!(interaction, Interaction::Pressed) {
-                    to_apply.push((entity, parent.get(), swap.cloned().unwrap_or_default(), target.cloned().unwrap_or_default(), func.0.clone()));
-                }
-            }
-            for (entity, _parent, swap, target, func) in to_apply {
-                let xs = named_system_registry.call::<(), HTMLScene>(world, func.as_str(), ()).unwrap();
+fn find_to_run(
+    created_entities: Query<(), Added<Transform>>,
+    interactions: Query<&Interaction, Changed<Interaction>>,
+    x_entities: Query<(Entity, &XFunction, Option<&XOn>, Option<&XSwap>, Option<&XTarget>)>
+) -> Vec<ToRun> {
+    let mut to_run = Vec::new();
 
-                let entity = match target {
-                    XTarget::This => entity,
-                    XTarget::Name(name) => name_query.iter(world).find(|(_, n)| n.as_str() == name).unwrap().0,
-                    _ => unimplemented!()
-                };
-                match swap {
-                    XSwap::Outer => {
-                        world.entity_mut(entity)
-                            .despawn_descendants()
-                            .insert(html_scenes.add(xs));
-                    },
-                    XSwap::Inner => {
-                        let child = world.spawn_empty()
-                            .insert(html_scenes.add(xs))
-                            .id();
-                        world.entity_mut(entity)
-                            .despawn_descendants()
-                            .add_child(child);
-                    },
-                    XSwap::Back => {
-                        let child = world.spawn_empty()
-                            .insert(html_scenes.add(xs))
-                            .id();
-                        world.entity_mut(entity)
-                            .push_children(&[child]);
-                    },
-                    XSwap::Front => {
-                        let child = world.spawn_empty()
-                            .insert(html_scenes.add(xs))
-                            .id();
-                        world.entity_mut(entity)
-                            .insert_children(0, &[child]);
-                    }
-                }
-            }
-        });
+    for (entity, func, on, swap, target) in &x_entities {
+        let func = func.clone();
+        let on = on.cloned().unwrap_or_default();
+        let swap = swap.cloned().unwrap_or_default();
+        let target = target.cloned().unwrap_or_default();
+
+        if match on {
+            XOn::Create => created_entities.contains(entity),
+            XOn::Click => interactions.get(entity)
+                            .map(|i| matches!(i, Interaction::Pressed))
+                            .unwrap_or(false),
+            XOn::Update => true,
+            _ => unimplemented!()
+        } {
+            to_run.push((entity, func, on, swap, target))
+        }
+    }
+
+    to_run
+}
+
+fn run_x_funcs(
+    to_run: In<Vec<ToRun>>, world: &mut World
+) -> Vec<(ToRun, HTMLScene)> {
+    let ran = world.resource_scope(|world, named_system_registry: Mut<NamedSystemRegistry>| {
+        to_run.0.iter().map(|(_, func, _, _, _)|
+            named_system_registry.call::<(), HTMLScene>(world, func.0.as_str(), ()).unwrap()
+        ).collect::<Vec<_>>()
     });
+    to_run.0.into_iter().zip(ran.into_iter()).collect()
+}
+
+fn swap_system(
+    to_run: In<Vec<(ToRun, HTMLScene)>>,
+    mut html_scenes: ResMut<Assets<HTMLScene>>,
+    name_query: Query<(Entity, &Name)>,
+    children: Query<&Children>,
+    mut commands: Commands
+) {
+    for ((entity, _, _, swap, target), xs) in to_run.0.into_iter() {
+        let entity = match target {
+            XTarget::This => entity,
+            XTarget::Name(name) => name_query.iter().find(|(_, n)| n.as_str() == name).unwrap().0,
+            XTarget::ChildName(name) => children.iter_descendants(entity)
+                                            .find(|d| name_query.get(*d).map(|(_, n)| n.as_str() == name).unwrap_or(false)).unwrap(),
+            _ => unimplemented!()
+        };
+        match swap {
+            XSwap::Outer => {
+                commands.entity(entity)
+                    .despawn_descendants()
+                    .insert(html_scenes.add(xs));
+            },
+            XSwap::Inner => {
+                let child = commands.spawn_empty()
+                    .insert(html_scenes.add(xs))
+                    .id();
+                commands.entity(entity)
+                    .despawn_descendants()
+                    .add_child(child);
+            },
+            XSwap::Back => {
+                let child = commands.spawn_empty()
+                    .insert(html_scenes.add(xs))
+                    .id();
+                commands.entity(entity)
+                    .push_children(&[child]);
+            },
+            XSwap::Front => {
+                let child = commands.spawn_empty()
+                    .insert(html_scenes.add(xs))
+                    .id();
+                commands.entity(entity)
+                    .insert_children(0, &[child]);
+            }
+        }
+    }
 }
 
 pub struct XPlugin;
@@ -108,7 +138,10 @@ impl Plugin for XPlugin {
             .register_type::<XSwap>()
             .register_type::<XTarget>()
             .register_type::<XFunction>()
+            .register_type::<XOn>()
             
-            .add_systems(PreUpdate, button_swap_system.before(spawn_scene_system));
+            .add_systems(PreUpdate,
+                (find_to_run.pipe(run_x_funcs).pipe(swap_system), apply_deferred).before(spawn_scene_system)
+            );
     }
 }

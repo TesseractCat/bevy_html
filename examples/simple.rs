@@ -24,11 +24,11 @@ fn startup(num: Res<Number>, mut html_assets: ResMut<Assets<HTMLScene>>, mut com
 
             Node Style="flex_direction: Column, row_gap: Px(10)" {
                 Button BackgroundColor="\"red\"" Style="padding: All(Px(20))"
-                XTarget="Name(\"number\")" XFunction="\"increment\"" XSwap="Front" {
+                XTarget="Name(\"number\")" XFunction="\"increment\"" XSwap="Front" XOn="Click" {
                     Text TextStyle="size: 40" { "+" }
                 }
                 Button BackgroundColor="\"blue\"" Style="padding: All(Px(20))"
-                XTarget="Name(\"number\")" XFunction="\"decrement\"" {
+                XTarget="Name(\"number\")" XFunction="\"decrement\"" XOn="Click" {
                     Text TextStyle="size: 40" { "-" }
                 }
             }
