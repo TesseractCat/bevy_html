@@ -34,10 +34,6 @@ impl maud::Render for HTMLScene {
         PreEscaped(self.0.clone())
     }
 }
-#[reflect_trait]
-pub trait Template {
-    fn template(&self) -> HTMLScene;
-}
 
 impl From<Markup> for HTMLScene {
     fn from(value: Markup) -> Self {
@@ -56,30 +52,6 @@ impl TryFrom<String> for HTMLScene {
 
     fn try_from(value: String) -> Result<Self, Self::Error> {
         Ok(HTMLScene(value.clone(), Dom::parse(&value)?))
-    }
-}
-
-#[derive(Reflect, Default)]
-#[reflect(Template, Default)]
-struct NodeTemplate;
-impl Template for NodeTemplate {
-    fn template(&self) -> HTMLScene {
-        html! {
-            Node
-            Style BackgroundColor="\"transparent\"" BorderColor
-            FocusPolicy Transform GlobalTransform Visibility InheritedVisibility ViewVisibility ZIndex { }
-        }.into()
-    }
-}
-#[derive(Reflect, Default)]
-#[reflect(Template, Default)]
-struct TextTemplate;
-impl Template for TextTemplate {
-    fn template(&self) -> HTMLScene {
-        html! {
-            NodeTemplate
-            Text TextLayoutInfo TextFlags ContentSize { }
-        }.into()
     }
 }
 
@@ -124,6 +96,8 @@ pub enum HTMLSceneSpawnError {
     NoDeserialize(String),
     #[error("Attribute name [{0}]: Attempting to patch a non-struct component")]
     PatchNonStruct(String),
+    #[error("Unrecognized tag name {0}")]
+    UnrecognizedTagName(String)
 }
 
 fn construct_instance(world: &mut World, type_registry: &TypeRegistry, key_type: &TypeRegistration, value: Option<&str>) -> Result<Box<dyn Reflect>, HTMLSceneSpawnError> {
@@ -178,16 +152,23 @@ fn spawn_scene(
     ) -> Result<(), HTMLSceneSpawnError> {
         let mut text_style = TextStyle::default();
 
-        for (attribute, value) in std::iter::once((&html_el.name, None)).chain(html_el.attributes.iter().map(|x| (x.0, x.1.as_ref()))) {
+        // If there's a registered template function
+        if let Some(template) = commands.world_scope(|world| {
+            world.resource_scope(|world, named_system_registry: Mut<NamedSystemRegistry>| {
+                named_system_registry.call::<(), HTMLScene>(world, &html_el.name, ())
+            })
+        }) {
+            // Recurse with the template's XML
+            helper(&template.dom().children.first().unwrap().element().unwrap(), commands)?;
+        } else if html_el.name != "Entity" { // Null tag
+            return Err(HTMLSceneSpawnError::UnrecognizedTagName(html_el.name.to_string()));
+        }
+
+        for (attribute, value) in html_el.attributes.iter().map(|x| (x.0, x.1.as_ref())) {
             let type_registry_arc = commands.world().resource::<AppTypeRegistry>().0.clone();
             let type_registry = type_registry_arc.read();
 
-            // FIXME: Hardcode some attributes which can't be constructed at runtime
-            // Ideally these attributes should implement ReflectDefault and/or ReflectDeserialize
             match attribute.as_str() {
-                "Entity" => { continue; }, // 'Null' attribute
-                "ZIndex" => { commands.insert(ZIndex::default()); continue; },
-                "FocusPolicy" if value.is_none() => { commands.insert(FocusPolicy::default()); continue; },
                 "TextStyle" if value.is_some() => {
                     let wrapped_value = format!("({})", html_escape::decode_html_entities(value.unwrap()));
                     let mut ron_de = ron::Deserializer::from_str(&wrapped_value).unwrap();
@@ -215,23 +196,12 @@ fn spawn_scene(
                 construct_instance(world, &type_registry, attribute_reg, value.map(|x| x.as_str()))
             })?;
 
-            let template: Option<&dyn Template> = commands.world().resource::<AppTypeRegistry>().0.read()
-                .get_type_data::<ReflectTemplate>(attribute_reg.type_id())
-                .and_then(|x| x.get(&*instance));
-
-            // If this component is actually a template, instead of a component
-            if let Some(template) = template {
-                let template = template.template();
-                // Recurse with the template's XML
-                helper(&template.dom().children.first().unwrap().element().unwrap(), commands)?;
-            } else {
-                // Otherwise insert our component
-                let reflect_component = type_registry
-                    .get_with_type_path(instance.get_represented_type_info().unwrap().type_path())
-                    .expect(&format!("Attribute name [{attribute}]: Not registered in TypeRegistry"))
-                    .data::<ReflectComponent>().unwrap();
-                reflect_component.insert(commands, &*instance);
-            }
+            // Insert our component
+            let reflect_component = type_registry
+                .get_with_type_path(instance.get_represented_type_info().unwrap().type_path())
+                .expect(&format!("Attribute name [{attribute}]: Not registered in TypeRegistry"))
+                .data::<ReflectComponent>().unwrap();
+            reflect_component.insert(commands, &*instance);
         }
         if let Some(id) = html_el.id.as_ref() {
             commands.insert(Name::from(id.as_str()));
@@ -320,6 +290,32 @@ impl Construct for UiRect {
     }
 }
 
+fn node() -> HTMLScene {
+    html! {
+        Entity Node
+        Style
+        BackgroundColor="\"transparent\"" BorderColor
+        Transform GlobalTransform
+        Visibility InheritedVisibility ViewVisibility
+        FocusPolicy="Pass" ZIndex="Local(0)" { }
+    }.into()
+}
+fn text() -> HTMLScene {
+    html! {
+        Node ContentSize Text TextLayoutInfo TextFlags { }
+    }.into()
+}
+fn image() -> HTMLScene {
+    html! {
+        Node ContentSize UiImage UiImageSize { }
+    }.into()
+}
+fn button() -> HTMLScene {
+    html! {
+        Node Button Interaction="None" { }
+    }.into()
+}
+
 pub struct HTMLPlugin;
 impl Plugin for HTMLPlugin {
     fn build(&self, app: &mut App) {
@@ -339,8 +335,10 @@ impl Plugin for HTMLPlugin {
             .register_type_data::<Color, ReflectConstruct>()
             .register_type_data::<UiRect, ReflectConstruct>()
 
-            .register_type::<NodeTemplate>()
-            .register_type::<TextTemplate>()
+            .register_named_system("Node", node)
+            .register_named_system("Text", text)
+            .register_named_system("Image", image)
+            .register_named_system("Button", button)
 
             .add_systems(PreUpdate, spawn_scene_system);
     }

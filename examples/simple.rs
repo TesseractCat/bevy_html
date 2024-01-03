@@ -10,7 +10,7 @@ fn startup(num: Res<Number>, mut html_assets: ResMut<Assets<HTMLScene>>, mut com
     commands.spawn(Camera2dBundle::default());
 
     let xs = HTMLScene::from(html! {
-        NodeTemplate
+        Node
         Style="flex_direction: Row,
             column_gap: Px(20),
             margin: (Px(20), Px(20), Px(20), Px(20)),
@@ -18,19 +18,19 @@ fn startup(num: Res<Number>, mut html_assets: ResMut<Assets<HTMLScene>>, mut com
         Outline="color: \"black\", width: Px(2)"
         BackgroundColor="Rgba(red: 1, green: 0, blue: 1, alpha: 1)"
         {
-            NodeTemplate Style="width: Px(50), height: Px(50)" BackgroundColor="\"white\""
-                ContentSize UiImage="texture: \"cool.png\"" UiImageSize Outline="width: Px(5), color: \"purple\"" { }
+            Image Style="width: Px(50), height: Px(50)" BackgroundColor="\"white\""
+                UiImage="texture: \"cool.png\"" Outline="width: Px(5), color: \"purple\"" { }
 
             (number(num))
 
-            NodeTemplate Style="flex_direction: Column, row_gap: Px(10)" {
-                NodeTemplate BackgroundColor="\"red\"" Style="padding: (Px(20),Px(20),Px(20),Px(20))"
-                Button Interaction="None" XTarget="Name(\"number\")" XFunction="\"increment\"" {
-                    TextTemplate TextStyle="size: 40" { "+" }
+            Node Style="flex_direction: Column, row_gap: Px(10)" {
+                Button BackgroundColor="\"red\"" Style="padding: (Px(20),Px(20),Px(20),Px(20))"
+                XTarget="Name(\"number\")" XFunction="\"increment\"" {
+                    Text TextStyle="size: 40" { "+" }
                 }
-                NodeTemplate BackgroundColor="\"blue\"" Style="padding: (Px(20),Px(20),Px(20),Px(20))"
-                Button Interaction="None" XTarget="Name(\"number\")" XFunction="\"decrement\"" {
-                    TextTemplate TextStyle="size: 40" { "-" }
+                Button BackgroundColor="\"blue\"" Style="padding: (Px(20),Px(20),Px(20),Px(20))"
+                XTarget="Name(\"number\")" XFunction="\"decrement\"" {
+                    Text TextStyle="size: 40" { "-" }
                 }
             }
         }
@@ -42,9 +42,9 @@ fn startup(num: Res<Number>, mut html_assets: ResMut<Assets<HTMLScene>>, mut com
 
 fn number(num: Res<Number>) -> HTMLScene {
     HTMLScene::try_from(format!(r##"
-        <NodeTemplate id="number" Style="padding: (Px(20), Px(20), Px(20), Px(20))" BackgroundColor='"white"'>
-            <TextTemplate TextStyle='size: 35, color: "#222222", font: "FreeSerif.ttf"'>{}</TextTemplate>
-        </NodeTemplate>
+        <Node id="number" Style="padding: (Px(20), Px(20), Px(20), Px(20))" BackgroundColor='"white"'>
+            <Text TextStyle='size: 35, color: "#222222", font: "FreeSerif.ttf"'>{}</Text>
+        </Node>
     "##, num.0)).unwrap()
 }
 fn increment(mut num: ResMut<Number>) -> HTMLScene {
