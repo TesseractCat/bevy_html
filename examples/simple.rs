@@ -8,27 +8,27 @@ fn startup(mut html_assets: ResMut<Assets<HTMLScene>>, mut commands: Commands) {
 
     let xs = HTMLScene::from(html! {
         NodeTemplate
-        Style="{flex_direction: Row, row_gap: Px(10), margin: {left: Px(20), right: Px(20), top: Px(20), bottom: Px(20)}}"
+        Style="flex_direction: Row, row_gap: Px(10), margin: (Px(20), Px(20), Px(20), Px(20))"
         BackgroundColor="Rgba(red: 0, green: 0, blue: 0, alpha: 0)"
-        //Handle:XScene="test.xml"
         {
-            NodeTemplate Style="{flex_direction: Column, row_gap: Px(10)}" BackgroundColor="Rgba(red: 0, green: 0, blue: 0, alpha: 0)" {
-                NodeTemplate Style="{width: Px(50)}"
-                    ContentSize UiImage="{texture: (path_to_handle, (\"Image\", \"cool.png\"))}" UiImageSize { }
-                TextTemplate BackgroundColor="(hex_to_color, \"FF0000\")"
+            NodeTemplate Style="flex_direction: Column, row_gap: Px(10)" BackgroundColor="\"#00000000\"" {
+                NodeTemplate Style="width: Px(50)"
+                    ContentSize UiImage="texture: \"cool.png\"" UiImageSize { }
+                TextTemplate BackgroundColor="\"#FF0000\""
                     Button Interaction="None" XSwap XFunction="\"foo\"" { "meowing" }
-                TextTemplate BackgroundColor="Rgba(red: 0, green: 1, blue: 0, alpha: 1)" { "barking" }
-                TextTemplate BackgroundColor="Rgba(red: 0, green: 0, blue: 1, alpha: 1)" { "shouting" }
+                TextTemplate BackgroundColor="\"#00FF00\"" { "barking" }
+                TextTemplate BackgroundColor="\"#0000FF\"" { "shouting" }
             }
-            NodeTemplate #reds Style="{flex_direction: Column, row_gap: Px(5)}" {
-                @for i in 0..10 {
-                    TextTemplate BackgroundColor={"Rgba(red: " (format!("{}", (i as f32)/10.)) ", green: 0, blue: 0, alpha: 1)"} { "red" }
-                }
-            }
+            // NodeTemplate #reds Style="flex_direction: Column, row_gap: Px(5)" {
+            //     @for i in 0..10 {
+            //         TextTemplate BackgroundColor={"Rgba(red: " (format!("{}", (i as f32)/10.)) ", green: 0, blue: 0, alpha: 1)"} { "red" }
+            //     }
+            // }
         }
     });
+
     let xs2 = HTMLScene::try_from(r##"
-    <TextTemplate Style='{ flex_direction: Column }' BackgroundColor='(hex_to_color, "#FF0000")'>Eating</TextTemplate>
+    <TextTemplate Style='flex_direction: Column' BackgroundColor='"#FF0000"'>Eating</TextTemplate>
     "##).unwrap();
 
     commands.spawn_empty()
@@ -37,16 +37,16 @@ fn startup(mut html_assets: ResMut<Assets<HTMLScene>>, mut commands: Commands) {
 
 fn foo() -> HTMLScene {
     HTMLScene::from(html! {
-        NodeTemplate Style="{flex_direction: Column, row_gap: Px(20)}" {
-            TextTemplate BackgroundColor="Rgba(red: 0, green: 0, blue: 1, alpha: 1)" TextStyle="(30, Rgba(red:0,green:0,blue:0,alpha:1))" { "cheese" }
-            TextTemplate BackgroundColor="Rgba(red: 0, green: 0, blue: 1, alpha: 1)" { "cheese" }
-            TextTemplate BackgroundColor="Rgba(red: 0, green: 0, blue: 1, alpha: 1)" { "cheese" }
-            TextTemplate BackgroundColor="Rgba(red: 0, green: 0, blue: 1, alpha: 1)" { "cheese" }
+        NodeTemplate Style="flex_direction: Column, row_gap: Px(20)" {
+            TextTemplate BackgroundColor="\"#0000FF\"" TextStyle="30, \"#FFFF00\"" { "cheese" }
+            TextTemplate BackgroundColor="\"#0000FF\"" { "cheese" }
+            TextTemplate BackgroundColor="\"#0000FF\"" { "cheese" }
+            TextTemplate BackgroundColor="\"#0000FF\"" { "cheese" }
 
-            NodeTemplate Style="{width: Px(60)}"
-                ContentSize UiImage="{texture: (path_to_handle, (\"Image\", \"cool.png\"))}" UiImageSize { }
-            NodeTemplate Style="{width: Px(70)}"
-                ContentSize UiImage="{texture: (path_to_handle, (\"Image\", \"cool.png\"))}" UiImageSize { }
+            NodeTemplate Style="width: Px(60)"
+                ContentSize UiImage="texture: \"cool.png\"" UiImageSize { }
+            NodeTemplate Style="width: Px(70)"
+                ContentSize UiImage="texture: \"cool.png\"" UiImageSize { }
         }
     })
 }
