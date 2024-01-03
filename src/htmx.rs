@@ -15,9 +15,14 @@ use crate::named_system_registry::NamedSystemRegistry;
 pub enum XSwap {
     #[default]
     Outer,
-    Inner,
-    Id(String),
-    Root
+    Inner
+}
+#[derive(Component, Serialize, Deserialize, Default, Debug, Clone, Reflect)]
+#[reflect(Component, Deserialize, Default)]
+pub enum XTarget {
+    #[default]
+    This,
+    Name(String)
 }
 #[derive(Component, Serialize, Deserialize, Default, Debug, Clone, Reflect)]
 #[reflect(Component, Deserialize)]
@@ -37,21 +42,27 @@ fn button_swap_system(
                     &Interaction,
                     &Parent,
                     &XFunction,
-                    Option<&XSwap>
+                    Option<&XSwap>,
+                    Option<&XTarget>
                 ),
                 (Changed<Interaction>, With<Button>),
             >();
+            let mut name_query = world.query::<(Entity, &Name)>();
             let mut queue = bevy::ecs::system::CommandQueue::default();
 
-            let mut to_apply: Vec<(Entity, Entity, XSwap, String)> = Vec::new();
-            for (entity, interaction, parent, func, swap) in interaction_query.iter(world) {
+            let mut to_apply: Vec<(Entity, Entity, XSwap, XTarget, String)> = Vec::new();
+            for (entity, interaction, parent, func, swap, target) in interaction_query.iter(world) {
                 if matches!(interaction, Interaction::Pressed) {
-                    to_apply.push((entity, parent.get(), swap.cloned().unwrap_or_default(), func.0.clone()));
+                    to_apply.push((entity, parent.get(), swap.cloned().unwrap_or_default(), target.cloned().unwrap_or_default(), func.0.clone()));
                 }
             }
-            for (entity, parent, swap, func) in to_apply {
+            for (entity, parent, swap, target, func) in to_apply {
                 let xs = named_system_registry.call::<(), HTMLScene>(world, func.as_str(), ()).unwrap();
 
+                let entity = match target {
+                    XTarget::This => entity,
+                    XTarget::Name(name) => name_query.iter(world).find(|(_, n)| n.as_str() == name).unwrap().0
+                };
                 match swap {
                     XSwap::Outer => {
                         world.entity_mut(entity)
@@ -78,12 +89,8 @@ impl Plugin for XPlugin {
     fn build(&self, app: &mut App) {
         app
             .register_type::<XSwap>()
-            .register_type_data::<XSwap, ReflectComponent>()
-            .register_type_data::<XSwap, ReflectDeserialize>()
-
+            .register_type::<XTarget>()
             .register_type::<XFunction>()
-            .register_type_data::<XFunction, ReflectComponent>()
-            .register_type_data::<XFunction, ReflectDeserialize>()
             
             .add_systems(PreUpdate, button_swap_system.before(spawn_scene_system));
     }

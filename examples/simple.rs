@@ -1,61 +1,69 @@
-use bevy::{prelude::*, render::render_resource::DynamicUniformBuffer, reflect::{TypeRegistry, TypeRegistration}, scene::DynamicEntity, app::ScheduleRunnerPlugin, pbr::PBR_TYPES_SHADER_HANDLE, ecs::{reflect::ReflectCommandExt, system::{EntityCommands, SystemId}}, ui::FocusPolicy, a11y::Focus};
-use maud::{html, Markup};
-use spring_peeper::{HTMLPlugin, HTMLScene, NamedSystemRegistryExt};
+use bevy::prelude::*;
+use maud::html;
+use bevy_html::{HTMLPlugin, HTMLScene, NamedSystemRegistryExt};
 
-fn startup(mut html_assets: ResMut<Assets<HTMLScene>>, mut commands: Commands) {
+#[derive(Resource, Default)]
+struct Number(i32);
+
+fn startup(num: Res<Number>, mut html_assets: ResMut<Assets<HTMLScene>>, mut commands: Commands) {
     // UI camera
     commands.spawn(Camera2dBundle::default());
 
     let xs = HTMLScene::from(html! {
         NodeTemplate
-        Style="flex_direction: Row, row_gap: Px(10), margin: (Px(20), Px(20), Px(20), Px(20))"
-        BackgroundColor="Rgba(red: 0, green: 0, blue: 0, alpha: 0)"
+        Style="flex_direction: Row,
+            column_gap: Px(20),
+            margin: (Px(20), Px(20), Px(20), Px(20)),
+            padding: (Px(20), Px(20), Px(20), Px(20))"
+        Outline="color: \"black\", width: Px(2)"
+        BackgroundColor="Rgba(red: 1, green: 0, blue: 1, alpha: 1)"
         {
-            NodeTemplate Style="flex_direction: Column, row_gap: Px(10)" BackgroundColor="\"#00000000\"" {
-                NodeTemplate Style="width: Px(50)"
-                    ContentSize UiImage="texture: \"cool.png\"" UiImageSize { }
-                TextTemplate BackgroundColor="\"#FF0000\""
-                    Button Interaction="None" XSwap XFunction="\"foo\"" { "meowing" }
-                TextTemplate BackgroundColor="\"#00FF00\"" { "barking" }
-                TextTemplate BackgroundColor="\"#0000FF\"" { "shouting" }
+            NodeTemplate Style="width: Px(50), height: Px(50)" BackgroundColor="\"white\""
+                ContentSize UiImage="texture: \"cool.png\"" UiImageSize Outline="width: Px(5), color: \"purple\"" { }
+
+            (number(num))
+
+            NodeTemplate Style="flex_direction: Column, row_gap: Px(10)" {
+                NodeTemplate BackgroundColor="\"red\"" Style="padding: (Px(20),Px(20),Px(20),Px(20))"
+                Button Interaction="None" XTarget="Name(\"number\")" XFunction="\"increment\"" {
+                    TextTemplate TextStyle="size: 40" { "+" }
+                }
+                NodeTemplate BackgroundColor="\"blue\"" Style="padding: (Px(20),Px(20),Px(20),Px(20))"
+                Button Interaction="None" XTarget="Name(\"number\")" XFunction="\"decrement\"" {
+                    TextTemplate TextStyle="size: 40" { "-" }
+                }
             }
-            // NodeTemplate #reds Style="flex_direction: Column, row_gap: Px(5)" {
-            //     @for i in 0..10 {
-            //         TextTemplate BackgroundColor={"Rgba(red: " (format!("{}", (i as f32)/10.)) ", green: 0, blue: 0, alpha: 1)"} { "red" }
-            //     }
-            // }
         }
     });
-
-    let xs2 = HTMLScene::try_from(r##"
-    <TextTemplate Style='flex_direction: Column' BackgroundColor='"#FF0000"'>Eating</TextTemplate>
-    "##).unwrap();
 
     commands.spawn_empty()
         .insert(html_assets.add(xs));
 }
 
-fn foo() -> HTMLScene {
-    HTMLScene::from(html! {
-        NodeTemplate Style="flex_direction: Column, row_gap: Px(20)" {
-            TextTemplate BackgroundColor="\"#0000FF\"" TextStyle="30, \"#FFFF00\"" { "cheese" }
-            TextTemplate BackgroundColor="\"#0000FF\"" { "cheese" }
-            TextTemplate BackgroundColor="\"#0000FF\"" { "cheese" }
-            TextTemplate BackgroundColor="\"#0000FF\"" { "cheese" }
-
-            NodeTemplate Style="width: Px(60)"
-                ContentSize UiImage="texture: \"cool.png\"" UiImageSize { }
-            NodeTemplate Style="width: Px(70)"
-                ContentSize UiImage="texture: \"cool.png\"" UiImageSize { }
-        }
-    })
+fn number(num: Res<Number>) -> HTMLScene {
+    HTMLScene::try_from(format!(r##"
+        <NodeTemplate id="number" Style="padding: (Px(20), Px(20), Px(20), Px(20))" BackgroundColor='"white"'>
+            <TextTemplate TextStyle='size: 35, color: "#222222", font: "FreeSerif.ttf"'>{}</TextTemplate>
+        </NodeTemplate>
+    "##, num.0)).unwrap()
+}
+fn increment(mut num: ResMut<Number>) -> HTMLScene {
+    num.0 += 1;
+    number(num.into())
+}
+fn decrement(mut num: ResMut<Number>) -> HTMLScene {
+    num.0 -= 1;
+    number(num.into())
 }
 
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
         .add_plugins(HTMLPlugin)
-        .register_named_system("foo", foo)
+
+        .init_resource::<Number>()
+        .register_named_system("increment", increment)
+        .register_named_system("decrement", decrement)
 
         .add_systems(Startup, startup)
 

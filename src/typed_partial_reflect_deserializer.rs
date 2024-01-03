@@ -182,6 +182,22 @@ impl<'a, 'de> DeserializeSeed<'de> for TypedPartialReflectDeserializer<'a> {
             },
             TypeInfo::Enum(info) => {
                 let mut dynamic_enum = match v {
+                    serde::__private::de::Content::Some(content) => { // Need to special case options for some reason
+                        let deserializer: serde::__private::de::ContentDeserializer<'de, D::Error> = content.into_deserializer();
+                        let mut t = DynamicTuple::default();
+                        t.insert_boxed(
+                            TypedPartialReflectDeserializer {
+                                set_represented_type: self.set_represented_type,
+                                world: self.world,
+                                registration: self.registry.get(match info.variant("Some").unwrap() {
+                                    VariantInfo::Tuple(i) => i.field_at(0).unwrap().type_id(),
+                                    _ => unreachable!()
+                                }).unwrap(),
+                                registry: self.registry
+                            }.deserialize(deserializer).unwrap()
+                        );
+                        DynamicEnum::new("Some", DynamicVariant::Tuple(t))
+                    }
                     serde::__private::de::Content::None => DynamicEnum::new("None", DynamicVariant::Unit),
                     _ => deserializer.deserialize_enum(
                         info.type_path_table().ident().unwrap(),

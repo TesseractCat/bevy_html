@@ -1,24 +1,39 @@
-use std::{thread::spawn, collections::HashMap, borrow::Cow};
+use std::{thread::spawn, collections::HashMap, borrow::Cow, fmt::Display};
 
-use bevy::{prelude::*, render::render_resource::DynamicUniformBuffer, reflect::{TypeInfo, TypeRegistry, TypeRegistration, ReflectMut, DynamicEnum, DynamicVariant, DynamicTuple, DynamicStruct, DynamicTupleStruct, TypeRegistryArc, FromType, EnumInfo, VariantInfo, serde::{UntypedReflectDeserializer, TypedReflectDeserializer}}, scene::DynamicEntity, app::ScheduleRunnerPlugin, pbr::PBR_TYPES_SHADER_HANDLE, ecs::{reflect::ReflectCommandExt, system::{EntityCommands, SystemId}}, ui::FocusPolicy, a11y::Focus};
+use bevy::{prelude::*, render::{render_resource::DynamicUniformBuffer, Render}, reflect::{TypeInfo, TypeRegistry, TypeRegistration, ReflectMut, DynamicEnum, DynamicVariant, DynamicTuple, DynamicStruct, DynamicTupleStruct, TypeRegistryArc, FromType, EnumInfo, VariantInfo, serde::{UntypedReflectDeserializer, TypedReflectDeserializer}}, scene::DynamicEntity, app::ScheduleRunnerPlugin, pbr::PBR_TYPES_SHADER_HANDLE, ecs::{reflect::ReflectCommandExt, system::{EntityCommands, SystemId}}, ui::FocusPolicy, a11y::Focus};
 use bevy::reflect::erased_serde;
 use html_parser::Dom;
-use maud::{html, Markup};
-use named_system_registry::{NamedSystemRegistryPlugin, NamedSystemRegistry};
+use maud::{html, Markup, PreEscaped};
+use named_system_registry::NamedSystemRegistryPlugin;
 use ron::{Options, extensions::Extensions, Value, Map, value::RawValue};
 use serde::{Serialize, Deserialize, Deserializer, de::{Visitor, DeserializeSeed}};
 use thiserror::Error;
 
-mod htmx;
+pub mod htmx;
 use htmx::*;
 mod named_system_registry;
-pub use named_system_registry::NamedSystemRegistryExt;
+pub use named_system_registry::{NamedSystemRegistryExt, NamedSystemRegistry};
 
 mod typed_partial_reflect_deserializer;
 use typed_partial_reflect_deserializer::*;
 
 #[derive(Asset, Reflect, Debug, Clone)]
-pub struct HTMLScene(#[reflect(ignore)] Dom);
+pub struct HTMLScene(#[reflect(ignore)] String, #[reflect(ignore)] Dom);
+impl HTMLScene {
+    fn dom(&self) -> &Dom {
+        &self.1
+    }
+}
+impl Display for HTMLScene {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+impl maud::Render for HTMLScene {
+    fn render(&self) -> Markup {
+        PreEscaped(self.0.clone())
+    }
+}
 #[reflect_trait]
 pub trait Template {
     fn template(&self) -> HTMLScene;
@@ -26,21 +41,21 @@ pub trait Template {
 
 impl From<Markup> for HTMLScene {
     fn from(value: Markup) -> Self {
-        HTMLScene(Dom::parse(&value.into_string()).unwrap())
+        HTMLScene(value.clone().into_string(), Dom::parse(&value.into_string()).unwrap())
     }
 }
 impl TryFrom<&str> for HTMLScene {
     type Error = html_parser::Error;
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
-        Ok(HTMLScene(Dom::parse(value)?))
+        Ok(HTMLScene(value.to_string(), Dom::parse(value)?))
     }
 }
 impl TryFrom<String> for HTMLScene {
     type Error = html_parser::Error;
 
     fn try_from(value: String) -> Result<Self, Self::Error> {
-        Ok(HTMLScene(Dom::parse(&value)?))
+        Ok(HTMLScene(value.clone(), Dom::parse(&value)?))
     }
 }
 
@@ -51,7 +66,7 @@ impl Template for NodeTemplate {
     fn template(&self) -> HTMLScene {
         html! {
             Node
-            Style BackgroundColor BorderColor
+            Style BackgroundColor="\"transparent\"" BorderColor
             FocusPolicy Transform GlobalTransform Visibility InheritedVisibility ViewVisibility ZIndex { }
         }.into()
     }
@@ -151,6 +166,10 @@ fn construct_instance(world: &mut World, type_registry: &TypeRegistry, key_type:
     Ok(instance)
 }
 
+#[derive(Default, Reflect)]
+struct InterimTextStyle {
+    size: f32, color: Color, font: Handle<Font>
+}
 fn spawn_scene(
     scene: &HTMLScene, replace: Entity, world: &mut World
 ) -> Result<(), HTMLSceneSpawnError> {
@@ -160,6 +179,9 @@ fn spawn_scene(
         let mut text_style = TextStyle::default();
 
         for (attribute, value) in std::iter::once((&html_el.name, None)).chain(html_el.attributes.iter().map(|x| (x.0, x.1.as_ref()))) {
+            let type_registry_arc = commands.world().resource::<AppTypeRegistry>().0.clone();
+            let type_registry = type_registry_arc.read();
+
             // FIXME: Hardcode some attributes which can't be constructed at runtime
             // Ideally these attributes should implement ReflectDefault and/or ReflectDeserialize
             match attribute.as_str() {
@@ -167,16 +189,24 @@ fn spawn_scene(
                 "ZIndex" => { commands.insert(ZIndex::default()); continue; },
                 "FocusPolicy" if value.is_none() => { commands.insert(FocusPolicy::default()); continue; },
                 "TextStyle" if value.is_some() => {
-                    let (font_size, color) = <(f32, Color)>::deserialize(&mut ron::Deserializer::from_str(value.unwrap()).unwrap()).unwrap_or_default();
-                    text_style.font_size = font_size;
-                    text_style.color = color;
+                    let wrapped_value = format!("({})", html_escape::decode_html_entities(value.unwrap()));
+                    let mut ron_de = ron::Deserializer::from_str(&wrapped_value).unwrap();
+                    let mut t = InterimTextStyle::default();
+                    t.apply(&*commands.world_scope(|world| {
+                        TypedPartialReflectDeserializer::new(world,
+                            type_registry.get(std::any::TypeId::of::<InterimTextStyle>()).unwrap(),
+                            &type_registry,
+                            false
+                        ).deserialize(&mut ron_de).unwrap()
+                    }));
+                    text_style.font_size = t.size;
+                    text_style.color = t.color;
+                    text_style.font = t.font;
                     continue;
                 },
                 _ => ()
             }
 
-            let type_registry_arc = commands.world().resource::<AppTypeRegistry>().0.clone();
-            let type_registry = type_registry_arc.read();
             let attribute_reg: &TypeRegistration = type_registry
                 .get_with_short_type_path(&attribute)
                 .expect(&format!("Attribute name [{}]: Referred to undefined component", &attribute));
@@ -191,9 +221,9 @@ fn spawn_scene(
 
             // If this component is actually a template, instead of a component
             if let Some(template) = template {
-                let template = template.template().0;
+                let template = template.template();
                 // Recurse with the template's XML
-                helper(&template.children.first().unwrap().element().unwrap(), commands)?;
+                helper(&template.dom().children.first().unwrap().element().unwrap(), commands)?;
             } else {
                 // Otherwise insert our component
                 let reflect_component = type_registry
@@ -231,7 +261,7 @@ fn spawn_scene(
 
     let mut child = world.entity_mut(replace);
     helper(
-        &scene.0.children.first().expect("HTMLScene has no children").element().expect("HTMLScene first child is not an element"),
+        &scene.dom().children.first().expect("HTMLScene has no children").element().expect("HTMLScene first child is not an element"),
         &mut child
     )
 }
@@ -277,7 +307,10 @@ impl<T: Asset> Construct for Handle<T> {
 impl Construct for Color {
     type In = String;
     fn construct(world: &mut World, data: Self::In) -> Option<Self> {
-        Color::hex(&data).ok()
+        let c = csscolorparser::parse(&data).ok()?;
+        Some(Color::Rgba {
+            red: c.r as f32, green: c.g as f32, blue: c.b as f32, alpha: c.a as f32
+        })
     }
 }
 impl Construct for UiRect {
@@ -296,15 +329,18 @@ impl Plugin for HTMLPlugin {
 
             .init_asset::<HTMLScene>()
 
-            .register_type::<NodeTemplate>()
-            .register_type::<TextTemplate>()
-
+            .register_type::<InterimTextStyle>()
             .register_type::<(String, String)>()
             .register_type_data::<(String, String), ReflectDeserialize>()
 
             .register_type_data::<Handle<Image>, ReflectConstruct>()
+            .register_type::<Option<Handle<Font>>>()
+            .register_type_data::<Handle<Font>, ReflectConstruct>()
             .register_type_data::<Color, ReflectConstruct>()
             .register_type_data::<UiRect, ReflectConstruct>()
+
+            .register_type::<NodeTemplate>()
+            .register_type::<TextTemplate>()
 
             .add_systems(PreUpdate, spawn_scene_system);
     }

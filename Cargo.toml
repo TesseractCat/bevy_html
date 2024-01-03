@@ -1,5 +1,5 @@
 [package]
-name = "spring_peeper"
+name = "bevy_html"
 version = "0.1.0"
 edition = "2021"
 
@@ -12,17 +12,15 @@ opt-level = 1
 opt-level = 3
 
 [lib]
-name = "spring_peeper"
+name = "bevy_html"
 path = "src/lib.rs"
 
 [dependencies]
 bevy = { version = "0.12.1", features = [ "dynamic_linking", "jpeg", "default_font" ] }
+csscolorparser = "0.6.2"
 html-escape = "0.2.13"
 html_parser = "0.7.0"
 maud = "0.25.0"
 ron = { git = "https://github.com/ron-rs/ron.git", rev = "e27d1d5" }
 serde = "1.0.193"
 thiserror = "1.0.52"
-
-# [patch.crates-io]
-# bevy = { path = "../bevy" }
