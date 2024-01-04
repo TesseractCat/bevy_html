@@ -89,6 +89,7 @@ fn swap_system(
     mut html_scenes: ResMut<Assets<HTMLScene>>,
     name_query: Query<(Entity, &Name)>,
     children: Query<&Children>,
+    parents: Query<&Parent>,
     mut commands: Commands
 ) {
     for ((entity, _, _, swap, target), xs) in to_run.0.into_iter() {
@@ -97,6 +98,7 @@ fn swap_system(
             XTarget::Name(name) => name_query.iter().find(|(_, n)| n.as_str() == name).unwrap().0,
             XTarget::ChildName(name) => children.iter_descendants(entity)
                                             .find(|d| name_query.get(*d).map(|(_, n)| n.as_str() == name).unwrap_or(false)).unwrap(),
+            XTarget::Root => parents.iter_ancestors(entity).find(|a| !parents.contains(*a)).unwrap(),
             _ => unimplemented!()
         };
         match swap {

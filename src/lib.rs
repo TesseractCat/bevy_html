@@ -233,7 +233,8 @@ fn spawn_scene(
             let reflect_component = type_registry
                 .get_with_type_path(instance.get_represented_type_info().unwrap().type_path())
                 .expect(&format!("Attribute name [{attribute}]: Not registered in TypeRegistry"))
-                .data::<ReflectComponent>().unwrap();
+                .data::<ReflectComponent>()
+                .expect(&format!("Attribute name [{attribute}]: Missing ReflectComponent type data"));
             reflect_component.insert(commands, &*instance);
         }
         if let Some(id) = html_el.id.as_ref() {

@@ -14,6 +14,23 @@ use bevy::prelude::*;
 use maud::html;
 use bevy_html::{HTMLPlugin, HTMLScene, NamedSystemRegistryExt};
 
+#[derive(Reflect, Component, Default)]
+#[reflect(Component, Default)]
+struct BackgroundColorOnInteract {
+    default: Color,
+    hovered: Color,
+    pressed: Color
+}
+fn hover_background_color(mut to_set: Query<(&Interaction, &BackgroundColorOnInteract, &mut BackgroundColor)>) {
+    for (interact, colors, mut background) in &mut to_set {
+        match interact {
+            Interaction::None => {background.0 = colors.default;},
+            Interaction::Pressed => {background.0 = colors.pressed;},
+            Interaction::Hovered => {background.0 = colors.hovered;},
+        }
+    }
+}
+
 #[derive(Resource, Default)]
 struct Number(i32);
 
@@ -22,27 +39,28 @@ fn startup(num: Res<Number>, mut html_assets: ResMut<Assets<HTMLScene>>, mut com
     commands.spawn(Camera2dBundle::default());
 
     let xs = HTMLScene::from(html! {
-        Node
-        Style="flex_direction: Row,
-            column_gap: Px(20),
-            margin: (Px(20), Px(20), Px(20), Px(20)),
-            padding: (Px(20), Px(20), Px(20), Px(20))"
-        Outline="color: \"black\", width: Px(2)"
-        BackgroundColor="Rgba(red: 1, green: 0, blue: 1, alpha: 1)"
-        {
-            Node Handle:HTMLScene="\"image.html\"" { }
-
-            (number(num))
-
-            Node Style="flex_direction: Column, row_gap: Px(10)" {
-                Button BackgroundColor="\"red\"" Style="padding: (Px(20),Px(20),Px(20),Px(20))"
-                XTarget="Name(\"number\")" XFunction="\"increment\"" XSwap="Front" {
-                    Text TextStyle="size: 40" { "+" }
+        Node Style="width: Percent(100), height: Percent(100), justify_content: Center, align_items: Center" {
+            Node
+            Style="flex_direction: Row,
+                column_gap: Px(10),
+                align_items: Center,
+                margin: All(Px(20)),
+                padding: All(Px(10))"
+            Outline="color: \"black\", width: Px(1)"
+            BackgroundColor="\"#111\""
+            {
+                Node Style="flex_direction: Column, row_gap: Px(10)" {
+                    Button BackgroundColorOnInteract="default: \"#966\", hovered: \"#A77\", pressed: \"#855\"" Style="padding: All(Px(10))"
+                    XTarget="Name(\"number\")" XFunction="\"increment\"" XOn="Click" {
+                        Text TextStyle="size: 30" { "increment" }
+                    }
+                    Button BackgroundColorOnInteract="default: \"#669\", hovered: \"#77A\", pressed: \"#558\"" Style="padding: All(Px(10))"
+                    XTarget="Name(\"number\")" XFunction="\"decrement\"" XOn="Click" {
+                        Text TextStyle="size: 30" { "decrement" }
+                    }
                 }
-                Button BackgroundColor="\"blue\"" Style="padding: (Px(20),Px(20),Px(20),Px(20))"
-                XTarget="Name(\"number\")" XFunction="\"decrement\"" {
-                    Text TextStyle="size: 40" { "-" }
-                }
+    
+                (number(num))
             }
         }
     });
@@ -53,8 +71,8 @@ fn startup(num: Res<Number>, mut html_assets: ResMut<Assets<HTMLScene>>, mut com
 
 fn number(num: Res<Number>) -> HTMLScene {
     HTMLScene::try_from(format!(r##"
-        <Node id="number" Style="padding: (Px(20), Px(20), Px(20), Px(20))" BackgroundColor='"white"'>
-            <Text TextStyle='size: 35, color: "#222222", font: "FreeSerif.ttf"'>{}</Text>
+        <Node id="number" Style="width: Px(50), height: Px(50), justify_content: Center, align_items: Center" BackgroundColor='"white"'>
+            <Text TextStyle='size: 30, color: "#222", font: "FreeSerif.ttf"'>{}</Text>
         </Node>
     "##, num.0)).unwrap()
 }
@@ -77,6 +95,8 @@ fn main() {
         .register_named_system("decrement", decrement)
 
         .add_systems(Startup, startup)
+        .register_type::<BackgroundColorOnInteract>()
+        .add_systems(Update, hover_background_color)
 
         .run();
 }
