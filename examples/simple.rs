@@ -37,6 +37,8 @@ fn startup(num: Res<Number>, mut html_assets: ResMut<Assets<HTMLScene>>, mut com
             Outline="color: \"black\", width: Px(1)"
             BackgroundColor="\"#111\""
             {
+                Node Handle:HTMLScene="\"include.html\"" { }
+
                 Node Style="flex_direction: Column, row_gap: Px(10)" {
                     Button BackgroundColorOnInteract="default: \"#966\", hovered: \"#A77\", pressed: \"#855\"" Style="padding: All(Px(10))"
                     XTarget="Name(\"number\")" XFunction="\"increment\"" XOn="Click" {
