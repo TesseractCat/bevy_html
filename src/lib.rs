@@ -413,10 +413,6 @@ impl Into<HTMLScene> for UiImage {
 pub struct HTMLPlugin;
 impl Plugin for HTMLPlugin {
     fn build(&self, app: &mut App) {
-        embedded_asset!(app, "src/", "widgets/Node.html");
-        embedded_asset!(app, "src/", "widgets/Button.html");
-        embedded_asset!(app, "src/", "widgets/Text.html");
-
         app
             .add_plugins(NamedSystemRegistryPlugin)
             .add_plugins(XPlugin)
