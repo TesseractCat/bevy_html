@@ -1,6 +1,6 @@
-use std::{borrow::Cow, fmt::Display};
+use std::{borrow::Cow, fmt::Display, collections::HashMap};
 
-use bevy::{prelude::*, reflect::{TypeInfo, TypeRegistry, TypeRegistration, FromType}, gltf::Gltf, asset::{AssetLoader, AsyncReadExt}};
+use bevy::{prelude::*, reflect::{TypeInfo, TypeRegistry, TypeRegistration, FromType}, gltf::Gltf, asset::{AssetLoader, AsyncReadExt, embedded_asset}};
 use bevy::reflect::erased_serde;
 use html_parser::Dom;
 use maud::{html, Markup, PreEscaped};
@@ -95,7 +95,7 @@ pub struct ReflectConstruct {
 }
 impl<T: Construct + Reflect> FromType<T> for ReflectConstruct {
     fn from_type() -> Self {
-        ReflectConstruct {
+        Self {
             func: |world, deserializer: &mut dyn erased_serde::Deserializer| {
                 let data = T::In::deserialize(deserializer).ok()?;
                 let constructed = T::construct(world, data)?;
@@ -107,6 +107,26 @@ impl<T: Construct + Reflect> FromType<T> for ReflectConstruct {
 impl ReflectConstruct {
     pub fn construct(&self, world: &mut World, deserializer: &mut dyn erased_serde::Deserializer) -> Option<Box<dyn Reflect>> {
         (self.func)(world, deserializer)
+    }
+}
+
+#[derive(Clone)]
+pub struct ReflectIntoHTMLScene {
+    pub func: fn(this: Box<dyn Reflect>) -> HTMLScene
+}
+impl<T: Into<HTMLScene> + Reflect + TypePath> FromType<T> for ReflectIntoHTMLScene {
+    fn from_type() -> Self {
+        Self {
+            func: |this: Box<dyn Reflect>| -> HTMLScene {
+                let this: T = *this.downcast().unwrap();
+                Into::<HTMLScene>::into(this)
+            }
+        }
+    }
+}
+impl ReflectIntoHTMLScene {
+    pub fn into(&self, this: Box<dyn Reflect>) -> HTMLScene {
+        (self.func)(this)
     }
 }
 
@@ -179,22 +199,30 @@ fn spawn_scene(
         let mut text_style = TextStyle::default();
 
         // If there's a registered template function
-        if let Some(template) = commands.world_scope(|world| {
-            world.resource_scope(|world, named_system_registry: Mut<NamedSystemRegistry>| {
-                named_system_registry.call::<(), HTMLScene>(world, &html_el.name, ())
-            })
-        }) {
-            // Recurse with the template's XML
-            helper(&template.dom().children.first().unwrap().element().unwrap(), commands)?;
-        } else if html_el.name != "Entity" { // Null tag
-            return Err(HTMLSceneSpawnError::UnrecognizedTagName(html_el.name.to_string()));
+        // if let Some(template) = commands.world_scope(|world| {
+        //     world.resource_scope(|world, named_system_registry: Mut<NamedSystemRegistry>| {
+        //         named_system_registry.call::<(), HTMLScene>(world, &html_el.name, ())
+        //     })
+        // }) {
+        //     // Recurse with the template's XML
+        //     helper(&template.dom().children.first().unwrap().element().unwrap(), commands)?;
+        // } else if html_el.name != "Entity" { // Null tag
+        //     return Err(HTMLSceneSpawnError::UnrecognizedTagName(html_el.name.to_string()));
+        // }
+
+        let mut components: Vec<(&str, Option<&str>)> = std::iter::once((html_el.name.as_str(), None))
+            .chain(html_el.attributes.iter().map(|x| (x.0.as_str(), x.1.as_ref().map(|s| s.as_str())))).collect();
+        if let Some((_, v)) = components.iter().find(|x| x.0 == "x") {
+            components[0] = (&html_el.name, *v);
         }
 
-        for (attribute, value) in html_el.attributes.iter().map(|x| (x.0, x.1.as_ref())) {
+        for (attribute, value) in components.into_iter() {
             let type_registry_arc = commands.world().resource::<AppTypeRegistry>().0.clone();
             let type_registry = type_registry_arc.read();
 
-            match attribute.as_str() {
+            match attribute {
+                "Entity" => {continue;}, // Null attribute
+                "x" => {continue;}, // Placeholder attribute to allow assigning to tag
                 "TextStyle" if value.is_some() => {
                     let wrapped_value = format!("({})", html_escape::decode_html_entities(value.unwrap()));
                     let mut ron_de = ron::Deserializer::from_str(&wrapped_value).unwrap();
@@ -226,7 +254,21 @@ fn spawn_scene(
                 .expect(&format!("Attribute name [{}]: Referred to undefined component", &attribute));
 
             let instance = commands.world_scope(|world| {
-                construct_instance(world, &type_registry, attribute_reg, value.map(|x| x.as_str()))
+                construct_instance(world, &type_registry, attribute_reg, value)
+            })?;
+
+            if &attribute == &html_el.name {
+                if let Some(template) = 
+                    type_registry.get_type_data::<ReflectIntoHTMLScene>(type_registry.get_with_short_type_path(&attribute).unwrap().type_id())
+                {
+                    // Recurse with the template's XML
+                    let template = template.into(instance);
+                    helper(&template.dom().children.first().unwrap().element().unwrap(), commands)?;
+                }
+            }
+
+            let instance = commands.world_scope(|world| {
+                construct_instance(world, &type_registry, attribute_reg, value)
             })?;
 
             // Insert our component
@@ -270,11 +312,14 @@ fn spawn_scene(
     )
 }
 
+#[derive(Component)]
+struct HTMLSceneInstance;
+
 pub(crate) fn spawn_scene_system(
     world: &mut World,
 ) {
     world.resource_scope(|world, html_scenes: Mut<Assets<HTMLScene>>| {
-        let mut to_spawn = world.query::<(Entity, Option<&Parent>, &Handle<HTMLScene>)>();
+        let mut to_spawn = world.query_filtered::<(Entity, Option<&Parent>, &Handle<HTMLScene>), Without<HTMLSceneInstance>>();
         let mut children = world.query::<&Children>();
 
         for (entity, parent, handle) in to_spawn
@@ -282,19 +327,9 @@ pub(crate) fn spawn_scene_system(
             .map(|(a,b,c)| (a, b.map(|p| p.get()), c.clone()))
             .collect::<Vec<_>>()
         {
-            let scene = html_scenes.get(handle).unwrap();
-            let entity = if let Some(parent) = parent {
-                let idx = children.get(world, parent).unwrap().iter().position(|&x| x == entity).unwrap();
-    
-                world.entity_mut(entity).despawn_recursive();
-                let entity = world.spawn_empty().id();
-                world.entity_mut(parent).insert_children(idx, &[entity]);
+            let Some(scene) = html_scenes.get(handle) else { continue; };
 
-                entity
-            } else {
-                world.entity_mut(entity).despawn();
-                world.spawn_empty().id()
-            };
+            world.entity_mut(entity).insert(HTMLSceneInstance);
 
             spawn_scene(scene, entity, world).expect("Failed to spawn HTMLScene!");
         }
@@ -341,35 +376,47 @@ impl Construct for UiRect {
     }
 }
 
-fn node() -> HTMLScene {
-    html! {
-        Entity Node
-        Style
-        BackgroundColor="\"transparent\"" BorderColor
-        Transform GlobalTransform
-        Visibility InheritedVisibility ViewVisibility
-        FocusPolicy="Pass" ZIndex="Local(0)" { }
-    }.into()
+impl Into<HTMLScene> for Node {
+    fn into(self) -> HTMLScene {
+        html! {
+            Entity
+            Style
+            BackgroundColor="\"transparent\"" BorderColor
+            Transform GlobalTransform
+            Visibility InheritedVisibility ViewVisibility
+            FocusPolicy="Pass" ZIndex="Local(0)" { }
+        }.into()
+    }
 }
-fn text() -> HTMLScene {
-    html! {
-        Node ContentSize Text TextLayoutInfo TextFlags { }
-    }.into()
+impl Into<HTMLScene> for Text {
+    fn into(self) -> HTMLScene {
+        html! {
+            Node ContentSize TextLayoutInfo TextFlags { }
+        }.into()
+    }
 }
-fn image() -> HTMLScene {
-    html! {
-        Node ContentSize UiImage UiImageSize { }
-    }.into()
+impl Into<HTMLScene> for Button {
+    fn into(self) -> HTMLScene {
+        html! {
+            Node Interaction="None" { }
+        }.into()
+    }
 }
-fn button() -> HTMLScene {
-    html! {
-        Node Button Interaction="None" { }
-    }.into()
+impl Into<HTMLScene> for UiImage {
+    fn into(self) -> HTMLScene {
+        html! {
+            Node ContentSize UiImageSize BackgroundColor="\"white\"" { }
+        }.into()
+    }
 }
 
 pub struct HTMLPlugin;
 impl Plugin for HTMLPlugin {
     fn build(&self, app: &mut App) {
+        embedded_asset!(app, "src/", "widgets/Node.html");
+        embedded_asset!(app, "src/", "widgets/Button.html");
+        embedded_asset!(app, "src/", "widgets/Text.html");
+
         app
             .add_plugins(NamedSystemRegistryPlugin)
             .add_plugins(XPlugin)
@@ -391,10 +438,10 @@ impl Plugin for HTMLPlugin {
             .register_type_data::<Color, ReflectConstruct>()
             .register_type_data::<UiRect, ReflectConstruct>()
 
-            .register_named_system("Node", node)
-            .register_named_system("Text", text)
-            .register_named_system("Image", image)
-            .register_named_system("Button", button)
+            .register_type_data::<Node, ReflectIntoHTMLScene>()
+            .register_type_data::<Button, ReflectIntoHTMLScene>()
+            .register_type_data::<Text, ReflectIntoHTMLScene>()
+            .register_type_data::<UiImage, ReflectIntoHTMLScene>()
 
             .add_systems(PreUpdate, spawn_scene_system);
     }

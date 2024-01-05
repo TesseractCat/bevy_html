@@ -5,7 +5,7 @@ use bevy::reflect::std_traits::ReflectDefault;
 use bevy::reflect::Reflect;
 use serde::{Serialize, Deserialize};
 
-use crate::{HTMLScene, spawn_scene_system};
+use crate::{HTMLScene, spawn_scene_system, HTMLSceneInstance};
 use crate::named_system_registry::NamedSystemRegistry;
 
 #[derive(Component, Serialize, Deserialize, Default, Debug, Clone, Reflect)]
@@ -105,10 +105,12 @@ fn swap_system(
             XSwap::Outer => {
                 commands.entity(entity)
                     .despawn_descendants()
+                    .remove::<HTMLSceneInstance>()
                     .insert(html_scenes.add(xs));
             },
             XSwap::Inner => {
                 let child = commands.spawn_empty()
+                    .remove::<HTMLSceneInstance>()
                     .insert(html_scenes.add(xs))
                     .id();
                 commands.entity(entity)
@@ -117,6 +119,7 @@ fn swap_system(
             },
             XSwap::Back => {
                 let child = commands.spawn_empty()
+                    .remove::<HTMLSceneInstance>()
                     .insert(html_scenes.add(xs))
                     .id();
                 commands.entity(entity)
@@ -124,6 +127,7 @@ fn swap_system(
             },
             XSwap::Front => {
                 let child = commands.spawn_empty()
+                    .remove::<HTMLSceneInstance>()
                     .insert(html_scenes.add(xs))
                     .id();
                 commands.entity(entity)
